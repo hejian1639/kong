@@ -60,6 +60,8 @@ local balancer_execute = require("kong.core.balancer").execute
 local kong_cluster_events = require "kong.cluster_events"
 local kong_error_handlers = require "kong.core.error_handlers"
 
+local http = require "resty.http"  
+
 local ngx              = ngx
 local header           = ngx.header
 local ipairs           = ipairs
@@ -160,6 +162,34 @@ function Kong.init()
   assert(core.build_router(dao, "init"))
 end
 
+function deleteApi(api)
+  local httpc = http.new()
+  local res, err = httpc:request_uri("http://localhost:8001/apis/"..api.id, method = "DELETE")
+  if not res then
+    ngx.log(ngx.ERR, "failed to delete: ", api.name, " error: ", err)
+    return
+  end
+
+  if res.status ~= 200 then
+    ngx.log(ngx.ERR, "failed to delete: ", api.name, " status: ", res.status)
+  end
+
+end
+
+function ping(api)
+  ngx.log(ngx.ERR, api.name)
+  ngx.log(ngx.ERR, api.uris[1])
+  local httpc = http.new()
+  local res, err = httpc:request_uri("http://localhost:8000"..api.uris[1])
+  
+  if not res or res.status ~= 200 then
+    ngx.log(ngx.ERR, "failed to request: ", api.name, " error: ", err)
+    deleteApi(api)
+  end
+  
+
+end
+
 function Kong.init_worker()
   ngx.log(ngx.ERR, "init_worker_by_lua_block")
 
@@ -175,7 +205,6 @@ function Kong.init_worker()
     end
     ngx.log(ngx.ERR, "ngx.worker.id():", ngx.worker.id())
     
-    local http = require "resty.http"  
     local httpc = http.new()
     local res, err = httpc:request_uri("http://localhost:8001/apis")
    
@@ -186,8 +215,7 @@ function Kong.init_worker()
       ngx.log(ngx.ERR, body.total)
       for key,value in ipairs(body.data) 
       do
-        ngx.log(ngx.ERR, value.name)
-       -- ngx.log(ngx.ERR, value.uris)
+        ping(value)
       end
     else 
       ngx.log(ngx.ERR, "status:", res.status)
@@ -211,28 +239,6 @@ function Kong.init_worker()
     end
   end
 
-  local hc = require "resty.upstream.healthcheck"
-
-  local ok, err = hc.spawn_checker{
-      shm = "healthcheck",  -- defined by "lua_shared_dict"
-      upstream = "foo.com", -- defined by "upstream"
-      type = "http",
-
-      http_req = "GET /info HTTP/1.0\r\nHost: foo.com\r\n\r\n",
-              -- raw HTTP request for checking
-
-      interval = 2000,  -- run the check cycle every 2 sec
-      timeout = 1000,   -- 1 sec is the timeout for network operations
-      fall = 3,  -- # of successive failures before turning a peer down
-      rise = 2,  -- # of successive successes before turning a peer up
-      valid_statuses = {200, 302},  -- a list valid HTTP status code
-      concurrency = 10,  -- concurrency level for test requests
-  }
-  if ok then
-      ngx.log(ngx.ERR, "success to spawn health checker")
-    else
-      ngx.log(ngx.ERR, "failed to spawn health checker: ", err)
-  end    
 
   -- special math.randomseed from kong.core.globalpatches
   -- not taking any argument. Must be called only once

@@ -164,13 +164,13 @@ end
 
 function deleteApi(api)
   local httpc = http.new()
-  local res, err = httpc:request_uri("http://localhost:8001/apis/"..api.id, method = "DELETE")
+  local res, err = httpc:request_uri("http://localhost:8001/apis/"..api.id, {method = "DELETE"})
   if not res then
     ngx.log(ngx.ERR, "failed to delete: ", api.name, " error: ", err)
     return
   end
 
-  if res.status ~= 200 then
+  if res.status ~= 204 then
     ngx.log(ngx.ERR, "failed to delete: ", api.name, " status: ", res.status)
   end
 
@@ -181,16 +181,24 @@ function ping(api)
   ngx.log(ngx.ERR, api.uris[1])
   local httpc = http.new()
   local res, err = httpc:request_uri("http://localhost:8000"..api.uris[1])
-  
-  if not res or res.status ~= 200 then
+  ngx.log(ngx.ERR, "request: ", "http://localhost:8000"..api.uris[1])
+ 
+  if not res then
     ngx.log(ngx.ERR, "failed to request: ", api.name, " error: ", err)
     deleteApi(api)
+    return
   end
+
+  if res.status ~= 200 then
+    ngx.log(ngx.ERR, "failed to request: ", api.name, " status: ", res.status)
+    deleteApi(api)
+  end
+ 
   
 
 end
 
-function Kong.init_worker()
+function healthCheck()
   ngx.log(ngx.ERR, "init_worker_by_lua_block")
 
   local worker_key = string.format("%s_%d_%d_%d", "ngx_worker", ngx.worker.id(), ngx.worker.pid(), ngx.worker.count())
@@ -238,7 +246,13 @@ function Kong.init_worker()
       ngx.log(ngx.ERR, "failed to create the timer: ", err)
     end
   end
+ 
+  
 
+end
+
+function Kong.init_worker()
+  healthCheck()
 
   -- special math.randomseed from kong.core.globalpatches
   -- not taking any argument. Must be called only once
